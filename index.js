@@ -4,7 +4,9 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
-const { addTrainingJob } = require('./firebase'); // Ensure this path matches your file structure
+const jwt = require('jsonwebtoken');
+const { expressjwt: expressJwt } = require('express-jwt');
+const { addTrainingJob, fetchJobDetailsById, registerMiner, authenticateMiner, fetchPendingJobDetails } = require('./firebase');
 
 const app = express();
 const port = 3000;
@@ -14,6 +16,15 @@ app.use(cors()); // Enable CORS for all origins
 // Set up multer for file storage
 const storage = multer.memoryStorage(); // Change to memory storage to handle files as buffers
 const upload = multer({ storage: storage });
+
+// Middleware to validate JWT
+const checkJwt = expressJwt({
+    secret: process.env.JWT_SECRET,
+    algorithms: ['HS256']
+});
+
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
 // Route to handle the training job submissions
 app.post('/submit-training', upload.fields([{ name: 'trainingFile' }, { name: 'validationFile' }]), async (req, res) => {
@@ -52,6 +63,69 @@ app.post('/submit-training', upload.fields([{ name: 'trainingFile' }, { name: 'v
         res.status(500).send({ error: 'Failed to submit training job.' });
     }
 });
+
+app.get('/pending-jobs', checkJwt, async (req, res) => {
+    try {
+        const jobs = await fetchPendingJobDetails();
+        res.status(200).json(jobs);
+    } catch (error) {
+        console.error('Failed to fetch pending jobs:', error);
+        res.status(500).send({ error: 'Failed to fetch pending jobs' });
+    }
+});
+
+app.get('/job-details/:docId', checkJwt, async (req, res) => {
+    const { docId } = req.params;
+
+    try {
+        const jobDetails = await fetchJobDetailsById(docId);
+        if (!jobDetails) {
+            res.status(404).send({ message: 'Job not found' });
+            return;
+        }
+        res.status(200).json(jobDetails);
+    } catch (error) {
+        console.error('Failed to fetch job details:', error);
+        res.status(500).send({ error: 'Failed to fetch job details' });
+    }
+});
+
+app.post('/login', async (req, res) => {
+    const { username, password } = req.body;
+
+    try {
+        const user = await authenticateMiner(username, password);
+        const token = jwt.sign({ userId: user.username }, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+        res.status(200).send({ token });
+    } catch (error) {
+        console.error('Login error:', error.message);
+        res.status(401).send({ error: 'Login failed' });
+    }
+});
+
+app.post('/register-miner', async (req, res) => {
+    const { ethereumAddress, username, email } = req.body;
+    const password = generatePassword(); // Automatically generate a password
+
+    try {
+        const result = await registerMiner({ ethereumAddress, username, email, password });
+        res.status(200).send(result); // Send back the username and generated password
+    } catch (error) {
+        console.error('Error registering miner:', error);
+        res.status(500).send({ error: 'Failed to register miner.' });
+    }
+});
+
+function generatePassword() {
+    const length = 6;
+    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let retVal = "";
+    for (let i = 0, n = charset.length; i < length; ++i) {
+        retVal += charset.charAt(Math.floor(Math.random() * n));
+    }
+    return retVal;
+}
 
 function generateTrainingScript(trainingData) {
     const { baseModel = 'gpt2', batchSize = 8, learningRateMultiplier = 5e-5, numberOfEpochs = 3, fineTuningType = 'text-generation', huggingFaceId = 'default-dataset', suffix = 'default', seed = '42' } = trainingData;
