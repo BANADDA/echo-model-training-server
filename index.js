@@ -5,8 +5,9 @@ const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
 const { expressjwt: expressJwt } = require('express-jwt');
-const { addTrainingJob, fetchJobDetailsById, registerMiner, authenticateMiner, fetchPendingJobDetails } = require('./firebase');
+const { addTrainingJob, fetchJobDetailsById, registerMiner, authenticateMiner, fetchPendingJobDetails, start_training } = require('./firebase');
 
 const app = express();
 const port = 3000;
@@ -20,7 +21,8 @@ const upload = multer({ storage: storage });
 // Middleware to validate JWT
 const checkJwt = expressJwt({
     secret: process.env.JWT_SECRET,
-    algorithms: ['HS256']
+    algorithms: ['HS256'],
+    requestProperty: 'user' // ensures decoded token is attached to req.user
 });
 
 app.use(express.urlencoded({ extended: true }));
@@ -64,6 +66,29 @@ app.post('/submit-training', upload.fields([{ name: 'trainingFile' }, { name: 'v
     }
 });
 
+app.post('/start-training/:docId', checkJwt, async (req, res) => {
+    console.log('Miner ID:', req.user.minerId); // Assuming minerId is in req.user
+    console.log("Request to start training received with docId:", req.params.docId);
+    console.log("Request body:", req.body);
+
+    const { docId } = req.params;
+    const systemDetails = req.body;
+    const minerId = req.user.minerId; // Extract minerId from the decoded JWT
+
+    try {
+        const jobDetails = await start_training(docId, minerId, systemDetails); // Pass minerId here
+        if (!jobDetails) {
+            res.status(404).send({ message: 'Job not found or failed to start' });
+            return;
+        }
+        res.status(200).json(jobDetails);
+    } catch (error) {
+        console.error('Failed to start training job:', error);
+        res.status(500).send({ error: 'Failed to start training job' });
+    }
+});
+
+
 app.get('/pending-jobs', checkJwt, async (req, res) => {
     try {
         const jobs = await fetchPendingJobDetails();
@@ -95,12 +120,25 @@ app.post('/login', async (req, res) => {
 
     try {
         const user = await authenticateMiner(username, password);
-        const token = jwt.sign({ userId: user.username }, process.env.JWT_SECRET, { expiresIn: '1h' });
+        if (user) {
+            // Ensure minerId is included properly
+            console.log("Miner id: ", user.docId);
+            const token = jwt.sign({
+                username: user.username, // use for identification in the token if necessary
+                minerId: user.userId // This should be the Firestore document ID
+            }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
-        res.status(200).send({ token });
+            res.status(200).send({
+                token,
+                userId: user.username,  // This is fine for display purposes
+                minerId: user.userId // Confirm this is the correct Firestore document ID
+            });
+        } else {
+            res.status(401).send({ error: 'Authentication failed.' });
+        }
     } catch (error) {
-        console.error('Login error:', error.message);
-        res.status(401).send({ error: 'Login failed' });
+        console.error('Login error:', error);
+        res.status(500).send({ error: 'Login failed due to server error.' });
     }
 });
 

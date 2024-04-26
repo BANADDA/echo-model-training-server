@@ -1,5 +1,6 @@
 // firebase.js
 const admin = require('firebase-admin');
+const bcrypt = require('bcrypt');
 const { getStorage } = require('firebase-admin/storage');
 
 admin.initializeApp({
@@ -123,34 +124,83 @@ async function fetchPendingTrainingJobs() {
   }
 
   async function fetchJobDetailsById(docId) {
-    const docRef = db.collection('fine_tuning_jobs').doc(docId);
-    const doc = await docRef.get();
-
-    if (!doc.exists) {
+    try {
+      const docRef = db.collection('fine_tuning_jobs').doc(docId);
+      const doc = await docRef.get();
+  
+      if (!doc.exists) {
         console.log('No such document!');
         return null;
-    }
-
-    const jobDetails = doc.data();
-    try {
-        if (jobDetails.scriptPath) {
-            const scriptRef = storage.bucket().file(jobDetails.scriptPath);
-            jobDetails.scriptUrl = await scriptRef.getSignedUrl({ action: 'read', expires: '03-09-2491' });
-        }
-        if (jobDetails.trainingFilePath) {
-            const trainingRef = storage.bucket().file(jobDetails.trainingFilePath);
-            jobDetails.trainingFileUrl = await trainingRef.getSignedUrl({ action: 'read', expires: '03-09-2491' });
-        }
-        if (jobDetails.validationFilePath) {
-            const validationRef = storage.bucket().file(jobDetails.validationFilePath);
-            jobDetails.validationFileUrl = await validationRef.getSignedUrl({ action: 'read', expires: '03-09-2491' });
-        }
+      }
+  
+      console.log('Document data:', doc.data());
+      return doc.data();
     } catch (error) {
-        console.error("Error generating download URLs:", error);
-        return null; // Handle or log error as needed
+      console.error("Error fetching document:", error);
+      return null;  // Return null in case of error
     }
+}
 
-    return jobDetails;
+async function start_training(docId, minerId, systemDetails) {
+  const docRef = db.collection('fine_tuning_jobs').doc(docId);
+  const jobExecutionRef = db.collection('job_executions');
+
+  try {
+      const doc = await docRef.get();
+
+      if (!doc.exists) {
+          console.log('No such document!');
+          return null;
+      }
+
+      // Update the job status to 'running'
+      await docRef.update({
+          status: 'running'
+      });
+
+      // Create a job execution record
+      const jobExecutionData = {
+          userId: doc.data().userId, // Assuming the original job document has a userId field
+          minerId: minerId,
+          jobId: docId,
+          systemDetails: systemDetails,
+          status: 'running',
+          startDate: admin.firestore.FieldValue.serverTimestamp(),
+          lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+      };
+
+      await jobExecutionRef.add(jobExecutionData);
+
+      // Initialize URLs
+      let scriptUrl, trainingFileUrl, validationFileUrl;
+
+      // Retrieve file URLs if necessary
+      if (doc.data().scriptPath) {
+          const scriptRef = storage.bucket().file(doc.data().scriptPath);
+          [scriptUrl] = await scriptRef.getSignedUrl({ action: 'read', expires: '03-09-2491' });
+      }
+      if (doc.data().trainingFilePath) {
+          const trainingRef = storage.bucket().file(doc.data().trainingFilePath);
+          [trainingFileUrl] = await trainingRef.getSignedUrl({ action: 'read', expires: '03-09-2491' });
+      }
+      if (doc.data().validationFilePath) {
+          const validationRef = storage.bucket().file(doc.data().validationFilePath);
+          [validationFileUrl] = await validationRef.getSignedUrl({ action: 'read', expires: '03-09-2491' });
+      }
+
+      const updatedData = {
+          ...doc.data(),
+          scriptUrl: scriptUrl || '', // Provide fallback empty string if undefined
+          trainingFileUrl: trainingFileUrl || '', // Provide fallback empty string if undefined
+          validationFileUrl: validationFileUrl || '' // Provide fallback empty string if undefined
+      };
+
+      return updatedData;
+
+  } catch (error) {
+      console.error("Error in starting training job:", error);
+      return null;
+  }
 }
 
 async function registerMiner(minerData) {
@@ -171,6 +221,7 @@ async function registerMiner(minerData) {
   }
 }
 
+// Function to authenticate a miner
 async function authenticateMiner(username, password) {
   const minersRef = db.collection('miners');
   const snapshot = await minersRef.where('username', '==', username).limit(1).get();
@@ -179,16 +230,23 @@ async function authenticateMiner(username, password) {
   }
   
   const userDoc = snapshot.docs[0];
-  const user = userDoc.data();
+  const userData = userDoc.data();
+  
+  // Assuming your user document has an 'id' field
+  const userId = userDoc.id;
 
-  const passwordMatch = await bcrypt.compare(password, user.password);
+  // Here bcrypt should be used to compare the hashed password stored in your database
+  const passwordMatch = await bcrypt.compare(password, userData.password);
   if (!passwordMatch) {
       throw new Error('Invalid credentials');
   }
+  
+  console.log("Auth miner id: ", userId);
 
-  return user; // Return the user document if authentication succeeds
+  // Return the userId along with other user data
+  return { userId, ...userData };
 }
 
 module.exports = {
-  addTrainingJob, authenticateMiner, registerMiner, fetchPendingTrainingJobs, fetchPendingJobDetails, fetchJobDetailsById
+  addTrainingJob, authenticateMiner, start_training, registerMiner, fetchPendingTrainingJobs, fetchPendingJobDetails, fetchJobDetailsById
 };
