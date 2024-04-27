@@ -155,7 +155,7 @@ async function start_training(docId, minerId, systemDetails) {
 
       // Update the job status to 'running'
       await docRef.update({
-          status: 'running'
+          status: 'pending'
       });
 
       // Create a job execution record
