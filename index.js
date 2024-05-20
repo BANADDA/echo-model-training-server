@@ -30,6 +30,44 @@ const checkJwt = expressJwt({
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
+// Endpoint to handle inference requests
+app.post('/inference', (req, res) => {
+    const { prompt } = req.body;
+
+    if (!prompt) {
+        return res.status(400).send({ error: 'Prompt is required' });
+    }
+
+    // Correctly reference the path to the `inference.py` script
+    const scriptPath = path.join(__dirname, 'inference', 'inference.py');
+    const pythonProcess = spawn('python', [scriptPath, prompt]);
+
+    let responseData = '';
+    let errorOccurred = false;
+
+    pythonProcess.stdout.on('data', (data) => {
+        responseData += data.toString();
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+        console.error(`Error from Python script: ${data.toString()}`);
+        errorOccurred = true;
+        if (!res.headersSent) {
+            res.status(500).send({ error: 'Error processing the prompt' });
+        }
+    });
+
+    pythonProcess.on('close', (code) => {
+        if (code !== 0 && !errorOccurred) {
+            if (!res.headersSent) {
+                res.status(500).send({ error: 'Python script exited with an error' });
+            }
+        } else if (!errorOccurred) {
+            res.status(200).send({ response: responseData.trim() }); // Use .trim() to remove any trailing newlines
+        }
+    });
+});
+
 // Function to connect to RabbitMQ and send a job message
 async function sendToQueue(jobMessage) {
   const connection = await amqp.connect('amqp://localhost'); // RabbitMQ server address
