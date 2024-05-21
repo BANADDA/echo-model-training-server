@@ -30,6 +30,48 @@ const checkJwt = expressJwt({
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
+// Deploy/create a pod
+app.post('/deploy-pod', (req, res) => {
+    const { model_id, model_name } = req.body;
+
+    if (!model_id || !model_name) {
+        return res.status(400).send({ error: 'Model ID and model name are required' });
+    }
+
+    // Correctly reference the path to the `deploy_pod.py` script
+    const scriptPath = path.join(__dirname, 'inference', 'deploy_pod.py');
+    const pythonProcess = spawn('python', [scriptPath, model_id, model_name]);
+
+    let responseData = '';
+    let errorOccurred = false;
+
+    pythonProcess.stdout.on('data', (data) => {
+        responseData += data.toString();
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+        console.error(`Error from Python script: ${data.toString()}`);
+        errorOccurred = true;
+        if (!res.headersSent) {
+            res.status(500).send({ error: 'Error deploying the pod' });
+        }
+    });
+
+    pythonProcess.on('close', (code) => {
+        if (code !== 0 && !errorOccurred) {
+            if (!res.headersSent) {
+                res.status(500).send({ error: 'Python script exited with an error' });
+            }
+        } else if (!errorOccurred) {
+            const podDetails = JSON.parse(responseData.trim());
+            res.status(200).send({ 
+                server_url: `https://${podDetails.id}-80.proxy.runpod.net/generate`, 
+                pod: podDetails 
+            });
+        }
+    });
+});
+
 // Endpoint to handle inference requests
 app.post('/inference', (req, res) => {
     const { prompt } = req.body;

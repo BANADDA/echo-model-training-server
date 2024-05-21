@@ -1,14 +1,13 @@
+import json
+
 import requests
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import runpod
 
 # Runpod API Key
 RUNPOD_API_KEY = "UVM02ULWTIDBLM6URRHCGXJ2DIWP2H0THNPKH1L8"
-DEFAULT_SYSTEM_PROMPT = """
-You are a helpful assistant. Always answer as concisely as possible while being safe. Your answers should not be harmful, unethical, or offensive.
-""".strip()
+
 
 def get_existing_pod(model_id, model_name):
-    import runpod
     runpod.api_key = RUNPOD_API_KEY
     pods = runpod.get_pods()
     
@@ -18,7 +17,6 @@ def get_existing_pod(model_id, model_name):
     return None
 
 def create_pod(model_id, model_name):
-    import runpod
     runpod.api_key = RUNPOD_API_KEY
     gpu_count = 1
     pod = runpod.create_pod(
@@ -42,43 +40,41 @@ def inference_model(model_id, model_name):
         pod = create_pod(model_id, model_name)
     return pod
 
-def generate_prompt(prompt, system_prompt=DEFAULT_SYSTEM_PROMPT):
-    return f"""
-    [INST] <<SYS>>
-    {system_prompt}
-    <</SYS>>
-    {prompt} [/INST]
-    """.strip()
-
-def make_request(prompt, server_url):
-    data = {
+def generate_text(endpoint_url, prompt):
+    # Define the payload
+    payload = {
         "inputs": prompt,
-        "parameters": {"best_of": 1, "temperature": 0.01, "max_new_tokens": 512}
+        "parameters": {
+            "best_of": 1,
+            "decoder_input_details": True,
+            "details": True,
+            "do_sample": True,
+            "max_new_tokens": 512,
+            "repetition_penalty": 1.03,
+            "return_full_text": False,
+            "seed": None,
+            "stop": ["photographer"],
+            "temperature": 0.5,
+            "top_k": 10,
+            "top_p": 0.95,
+            "truncate": None,
+            "typical_p": 0.95,
+            "watermark": True
+        }
     }
-    headers = {"Content-Type": "application/json"}
-    response = requests.post(f"{server_url}/generate", json=data, headers=headers)
-    return response
+    # Define headers
+    headers = {
+        'accept': 'application/json',
+        'Content-Type': 'application/json'
+    }
+    # Send the POST request
+    response = requests.post(endpoint_url, headers=headers, data=json.dumps(payload))
 
-def model_chat(prompt, server_url):
-    prompt = generate_prompt(prompt)
-    print(f"Generated prompt: {prompt}")  # Debug print
-
-    response = make_request(prompt, server_url)
-    print(f"Response status code: {response.status_code}")  # Debug print
-    print(f"Full response from the server: {response.text}")  # Debug print
-    
-    result = response.json().get("generated_text", "")
-    print(f"Generated text: {result}")  # Debug print
-
-    # Extract the generated text part
-    start_index = result.find("[/INST]") + len("[/INST]")
-    end_index = result.rfind("<<SYS>>")
-    if start_index != -1 and end_index != -1:
-        generated_text = result[start_index:end_index].strip()
+    # Check if the request was successful
+    if response.status_code == 200:
+        return response.json()
     else:
-        generated_text = result.strip()
-    
-    return generated_text
+        response.raise_for_status()
 
 if __name__ == "__main__":
     import sys
@@ -87,7 +83,7 @@ if __name__ == "__main__":
     user_prompt = sys.argv[1]  # Get the prompt from the command-line arguments
 
     pod = inference_model(model_id, model_name)
-    server_url = f'https://{pod["id"]}-80.proxy.runpod.net'
-
-    result = model_chat(user_prompt, server_url)
-    print(result)
+    server_url = f'https://{pod["id"]}-80.proxy.runpod.net/generate'
+    chat = generate_text(server_url,user_prompt)
+    print(chat["generated_text"])
+    
