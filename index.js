@@ -1,11 +1,14 @@
 require('dotenv').config();
+const amqp = require('amqplib');
 const express = require('express');
 const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const { expressjwt: expressJwt } = require('express-jwt');
-const { addTrainingJob, fetchJobDetailsById, registerMiner, authenticateMiner, fetchPendingJobDetails, start_training } = require('./firebase');
+const { addTrainingJob, logMinerListening, fetchJobDetailsById, registerMiner, authenticateMiner, fetchPendingJobDetails, start_training, updatestatus } = require('./firebase');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -25,16 +28,13 @@ const checkJwt = expressJwt({
     requestProperty: 'user' // ensures decoded token is attached to req.user
 });
 
-// Logging middleware
-app.use((req, res, next) => {
-    console.log(`${req.method} ${req.url}`);
-    next();
-});
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
 // Route to handle the training job submissions
 app.post('/submit-training', upload.fields([{ name: 'trainingFile' }, { name: 'validationFile' }]), async (req, res) => {
     const { body, files } = req;
-
+    
     // Generate training script content dynamically based on request
     const scriptContent = generateTrainingScript(body);
     const scriptBuffer = Buffer.from(scriptContent, 'utf-8');
@@ -60,13 +60,53 @@ app.post('/submit-training', upload.fields([{ name: 'trainingFile' }, { name: 'v
             mimetype: 'text/x-python-script'
         };
 
+        // const numParameters = await getModelParameters(body.baseModel, huggingFaceToken);
+        // console.log(`Number of parameters for model ${body.baseModel}: ${numParameters}`);
+
         // Submit training job along with files
         const jobId = await addTrainingJob(body, trainingFileData, validationFileData, scriptFileData);
+
+
+        // Construct job message
+        const jobMessage = {
+          jobId: jobId,
+          fineTuningType: body.fineTuningType,
+          status: 'pending',
+          modelId: body.baseModel,
+          params: body.params
+        };
+    
+        // Send job message to RabbitMQ
+        await sendToQueue(jobMessage);
         res.status(200).send({ message: 'Training job submitted successfully!', jobId: jobId });
     } catch (error) {
         console.error('Error submitting training job:', error);
         res.status(500).send({ error: 'Failed to submit training job.' });
     }
+});
+
+// Route to start listening for jobs
+app.post('/start-listening', checkJwt, async (req, res) => {
+    const { minerId } = req.user; // Assuming minerId is available after JWT validation
+
+    // Connect to RabbitMQ and listen to the queue
+    const connection = await amqp.connect('amqp://localhost');
+    const channel = await connection.createChannel();
+    const queue = 'job_queue';
+
+    await channel.assertQueue(queue, { durable: true });
+    console.log(`[*] Miner ID ${minerId} is now listening for messages in ${queue}. To exit press CTRL+C`);
+
+    channel.consume(queue, (msg) => {
+        if (msg !== null) {
+            const job = JSON.parse(msg.content.toString());
+            console.log(`[x] Received job for Miner ID ${minerId}:`, job);
+            channel.ack(msg);
+        }
+    });
+
+    // Since this is a listener, we do not send a typical response
+    res.send({ message: "Started listening for jobs..." });
 });
 
 app.post('/start-training/:docId', checkJwt, async (req, res) => {
@@ -91,6 +131,24 @@ app.post('/start-training/:docId', checkJwt, async (req, res) => {
     }
 });
 
+// Endpoint to update the status of a specific training job
+app.patch('/update-status/:docId', checkJwt, async (req, res) => {
+    const { docId } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+        return res.status(400).json({ error: 'Status is required.' });
+    }
+
+    try {
+        // Assuming `updateStatus` is a function that updates the job's status in the database
+        await updatestatus(docId, status);
+        res.json({ message: `Status updated to ${status} for job ${docId}` });
+    } catch (error) {
+        console.error('Failed to update job status:', error);
+        res.status(500).json({ error: 'Failed to update job status' });
+    }
+});
 
 app.get('/pending-jobs', checkJwt, async (req, res) => {
     try {
@@ -124,12 +182,15 @@ app.post('/login', async (req, res) => {
     try {
         const user = await authenticateMiner(username, password);
         if (user) {
+            // Log that the miner is listening
+         const listen =   await logMinerListening(user.userId);
+         console.log("Listening: ", listen);
             // Ensure minerId is included properly
-            console.log("Miner id: ", user.docId);
+            // console.log("Miner id: ", user.docId);
             const token = jwt.sign({
                 username: user.username, // use for identification in the token if necessary
                 minerId: user.userId // This should be the Firestore document ID
-            }, process.env.JWT_SECRET, { expiresIn: '1h' });
+            }, process.env.JWT_SECRET, { expiresIn: '24h' });
 
             res.status(200).send({
                 token,
