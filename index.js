@@ -1,8 +1,6 @@
 require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
@@ -10,9 +8,11 @@ const { expressjwt: expressJwt } = require('express-jwt');
 const { addTrainingJob, fetchJobDetailsById, registerMiner, authenticateMiner, fetchPendingJobDetails, start_training } = require('./firebase');
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 app.use(cors()); // Enable CORS for all origins
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
 // Set up multer for file storage
 const storage = multer.memoryStorage(); // Change to memory storage to handle files as buffers
@@ -25,13 +25,16 @@ const checkJwt = expressJwt({
     requestProperty: 'user' // ensures decoded token is attached to req.user
 });
 
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+// Logging middleware
+app.use((req, res, next) => {
+    console.log(`${req.method} ${req.url}`);
+    next();
+});
 
 // Route to handle the training job submissions
 app.post('/submit-training', upload.fields([{ name: 'trainingFile' }, { name: 'validationFile' }]), async (req, res) => {
     const { body, files } = req;
-    
+
     // Generate training script content dynamically based on request
     const scriptContent = generateTrainingScript(body);
     const scriptBuffer = Buffer.from(scriptContent, 'utf-8');
@@ -153,6 +156,17 @@ app.post('/register-miner', async (req, res) => {
         console.error('Error registering miner:', error);
         res.status(500).send({ error: 'Failed to register miner.' });
     }
+});
+
+// Route not found (404)
+app.use((req, res, next) => {
+    res.status(404).send({ error: 'Not Found' });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).send({ error: 'Something broke!' });
 });
 
 function generatePassword() {
