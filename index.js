@@ -68,16 +68,16 @@ app.post('/submit-training', upload.fields([{ name: 'trainingFile' }, { name: 'v
 
 
         // Construct job message
-        const jobMessage = {
-          jobId: jobId,
-          fineTuningType: body.fineTuningType,
-          status: 'pending',
-          modelId: body.baseModel,
-          params: body.params
-        };
+        // const jobMessage = {
+        //   jobId: jobId,
+        //   fineTuningType: body.fineTuningType,
+        //   status: 'pending',
+        //   modelId: body.baseModel,
+        //   params: body.params
+        // };
     
-        // Send job message to RabbitMQ
-        await sendToQueue(jobMessage);
+        // // Send job message to RabbitMQ
+        // await sendToQueue(jobMessage);
         res.status(200).send({ message: 'Training job submitted successfully!', jobId: jobId });
     } catch (error) {
         console.error('Error submitting training job:', error);
@@ -86,28 +86,28 @@ app.post('/submit-training', upload.fields([{ name: 'trainingFile' }, { name: 'v
 });
 
 // Route to start listening for jobs
-app.post('/start-listening', checkJwt, async (req, res) => {
-    const { minerId } = req.user; // Assuming minerId is available after JWT validation
+// app.post('/start-listening', checkJwt, async (req, res) => {
+//     const { minerId } = req.user; // Assuming minerId is available after JWT validation
 
-    // Connect to RabbitMQ and listen to the queue
-    const connection = await amqp.connect('amqp://localhost');
-    const channel = await connection.createChannel();
-    const queue = 'job_queue';
+//     // Connect to RabbitMQ and listen to the queue
+//     const connection = await amqp.connect('amqp://localhost');
+//     const channel = await connection.createChannel();
+//     const queue = 'job_queue';
 
-    await channel.assertQueue(queue, { durable: true });
-    console.log(`[*] Miner ID ${minerId} is now listening for messages in ${queue}. To exit press CTRL+C`);
+//     await channel.assertQueue(queue, { durable: true });
+//     console.log(`[*] Miner ID ${minerId} is now listening for messages in ${queue}. To exit press CTRL+C`);
 
-    channel.consume(queue, (msg) => {
-        if (msg !== null) {
-            const job = JSON.parse(msg.content.toString());
-            console.log(`[x] Received job for Miner ID ${minerId}:`, job);
-            channel.ack(msg);
-        }
-    });
+//     channel.consume(queue, (msg) => {
+//         if (msg !== null) {
+//             const job = JSON.parse(msg.content.toString());
+//             console.log(`[x] Received job for Miner ID ${minerId}:`, job);
+//             channel.ack(msg);
+//         }
+//     });
 
-    // Since this is a listener, we do not send a typical response
-    res.send({ message: "Started listening for jobs..." });
-});
+//     // Since this is a listener, we do not send a typical response
+//     res.send({ message: "Started listening for jobs..." });
+// });
 
 app.post('/start-training/:docId', checkJwt, async (req, res) => {
     console.log('Miner ID:', req.user.minerId); // Assuming minerId is in req.user
