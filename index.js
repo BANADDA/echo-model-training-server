@@ -31,6 +31,20 @@ const checkJwt = expressJwt({
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
+const fetchWandBData = require('./wandb/fetch_wandb_data');
+
+app.get('/api/wandb/:projectName/:runName', checkJwt, async (req, res) => {
+    const { projectName, runName } = req.params;
+  
+    try {
+      const data = await fetchWandBData(projectName, runName);
+      res.status(200).json(data);
+    } catch (error) {
+      console.error('Failed to fetch WandB data:', error);
+      res.status(500).json({ error: 'Failed to fetch WandB data' });
+    }
+  });
+
 // Route to handle the training job submissions
 app.post('/submit-training', upload.fields([{ name: 'trainingFile' }, { name: 'validationFile' }]), async (req, res) => {
     const { body, files } = req;
