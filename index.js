@@ -9,8 +9,13 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const { expressjwt: expressJwt } = require('express-jwt');
 const { addTrainingJob, logMinerListening, fetchJobDetailsById, registerMiner, authenticateMiner, fetchPendingJobDetails, start_training, updatestatus } = require('./firebase');
+const { exec } = require('child_process');
+const http = require('http');
+const socketIo = require('socket.io');
 
 const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
 const port = process.env.PORT || 3000;
 
 app.use(cors()); // Enable CORS for all origins
@@ -27,23 +32,6 @@ const checkJwt = expressJwt({
     algorithms: ['HS256'],
     requestProperty: 'user' // ensures decoded token is attached to req.user
 });
-
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
-
-const fetchWandBData = require('./wandb/fetch_wandb_data');
-
-app.get('/api/wandb/:projectName/:runName', checkJwt, async (req, res) => {
-    const { projectName, runName } = req.params;
-  
-    try {
-      const data = await fetchWandBData(projectName, runName);
-      res.status(200).json(data);
-    } catch (error) {
-      console.error('Failed to fetch WandB data:', error);
-      res.status(500).json({ error: 'Failed to fetch WandB data' });
-    }
-  });
 
 // Route to handle the training job submissions
 app.post('/submit-training', upload.fields([{ name: 'trainingFile' }, { name: 'validationFile' }]), async (req, res) => {
@@ -80,48 +68,12 @@ app.post('/submit-training', upload.fields([{ name: 'trainingFile' }, { name: 'v
         // Submit training job along with files
         const jobId = await addTrainingJob(body, trainingFileData, validationFileData, scriptFileData);
 
-
-        // Construct job message
-        // const jobMessage = {
-        //   jobId: jobId,
-        //   fineTuningType: body.fineTuningType,
-        //   status: 'pending',
-        //   modelId: body.baseModel,
-        //   params: body.params
-        // };
-    
-        // // Send job message to RabbitMQ
-        // await sendToQueue(jobMessage);
         res.status(200).send({ message: 'Training job submitted successfully!', jobId: jobId });
     } catch (error) {
         console.error('Error submitting training job:', error);
         res.status(500).send({ error: 'Failed to submit training job.' });
     }
 });
-
-// Route to start listening for jobs
-// app.post('/start-listening', checkJwt, async (req, res) => {
-//     const { minerId } = req.user; // Assuming minerId is available after JWT validation
-
-//     // Connect to RabbitMQ and listen to the queue
-//     const connection = await amqp.connect('amqp://localhost');
-//     const channel = await connection.createChannel();
-//     const queue = 'job_queue';
-
-//     await channel.assertQueue(queue, { durable: true });
-//     console.log(`[*] Miner ID ${minerId} is now listening for messages in ${queue}. To exit press CTRL+C`);
-
-//     channel.consume(queue, (msg) => {
-//         if (msg !== null) {
-//             const job = JSON.parse(msg.content.toString());
-//             console.log(`[x] Received job for Miner ID ${minerId}:`, job);
-//             channel.ack(msg);
-//         }
-//     });
-
-//     // Since this is a listener, we do not send a typical response
-//     res.send({ message: "Started listening for jobs..." });
-// });
 
 app.post('/start-training/:docId', checkJwt, async (req, res) => {
     console.log('Miner ID:', req.user.minerId); // Assuming minerId is in req.user
@@ -197,19 +149,18 @@ app.post('/login', async (req, res) => {
         const user = await authenticateMiner(username, password);
         if (user) {
             // Log that the miner is listening
-         const listen =   await logMinerListening(user.userId);
-         console.log("Listening: ", listen);
+            const listen = await logMinerListening(user.userId);
+            console.log("Listening: ", listen);
             // Ensure minerId is included properly
-            // console.log("Miner id: ", user.docId);
             const token = jwt.sign({
-                username: user.username, // use for identification in the token if necessary
-                minerId: user.userId // This should be the Firestore document ID
+                username: user.username,
+                minerId: user.userId
             }, process.env.JWT_SECRET, { expiresIn: '24h' });
 
             res.status(200).send({
                 token,
-                userId: user.username,  // This is fine for display purposes
-                minerId: user.userId // Confirm this is the correct Firestore document ID
+                userId: user.username,
+                minerId: user.userId
             });
         } else {
             res.status(401).send({ error: 'Authentication failed.' });
@@ -286,10 +237,48 @@ trainer = Trainer(
 )
 
 trainer.train()
-model.save_pretrained('./final_model-${suffix}')
+model.save_pretrained('./final_model-${suffix}')7
 `;
 }
 
-app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
+// Real-time data fetching and Socket.io integration
+const entityName = 'ai-research-lab';
+const projectName = 'gpt_v4';
+const runId = '15v9e834'; // replace with your actual run ID
+
+// Function to fetch data and emit to clients
+const fetchDataAndEmit = () => {
+  const scriptPath = path.join(__dirname, 'wandb', 'fetch_wandb_data.py');
+  const apiKey = process.env.WANDB_API_KEY;
+
+  exec(`python ${scriptPath} ${entityName} ${projectName} ${runId} ${apiKey}`, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`Error executing Python script: ${error}`);
+      return;
+    }
+    if (stderr) {
+      console.error(`Python script stderr: ${stderr}`);
+      return;
+    }
+    try {
+      const data = JSON.parse(stdout);
+      io.sockets.emit('newData', data);
+    } catch (parseError) {
+      console.error(`Error parsing JSON: ${parseError}`);
+    }
+  });
+};
+
+// Call fetchDataAndEmit every second
+setInterval(fetchDataAndEmit, 1000);
+
+io.on('connection', (socket) => {
+  console.log('New client connected');
+  socket.on('disconnect', () => {
+    console.log('Client disconnected');
+  });
+});
+
+server.listen(port, () => {
+  console.log(`Server running on port ${port}`);
 });
