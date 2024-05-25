@@ -3,7 +3,7 @@
 const fetch = require('node-fetch');
 
 const fetchWandBData = async (projectName, runName) => {
-  const apiKey = 'YOUR_WANDB_API_KEY';
+  const apiKey = 'efa7d98857a922cbe11e78fa1ac22b62a414fbf3';
   const url = `https://api.wandb.ai/v1/runs/${projectName}/${runName}`;
 
   const response = await fetch(url, {
