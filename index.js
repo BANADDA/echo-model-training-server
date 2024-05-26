@@ -12,18 +12,19 @@ const { addTrainingJob, logMinerListening, fetchJobDetailsById, registerMiner, a
 const { exec } = require('child_process');
 const http = require('http');
 const socketIo = require('socket.io');
-
+const bodyParser = require('body-parser');
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 const port = process.env.PORT || 3000;
 
-app.use(cors()); // Enable CORS for all origins
+app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+app.use(bodyParser.json());
 
 // Set up multer for file storage
-const storage = multer.memoryStorage(); // Change to memory storage to handle files as buffers
+const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
 // Middleware to validate JWT
@@ -33,10 +34,39 @@ const checkJwt = expressJwt({
     requestProperty: 'user' // ensures decoded token is attached to req.user
 });
 
+app.get('/wandb-data', (req, res) => {
+    console.log('Endpoint /wandb-data reached');
+    exec('python wandb/test.py', (error, stdout, stderr) => {
+        if (error) {
+            console.error(`Error executing script: ${error.message}`);
+            res.status(500).send({ error: 'Failed to execute script' });
+            return;
+        }
+        if (stderr) {
+            console.error(`Script error: ${stderr}`);
+            res.status(500).send({ error: 'Script error' });
+            return;
+        }
+
+        // Log the stdout to check the script's output
+        console.log(`Script output: ${stdout}`);
+
+        // Send the output from the Python script as JSON
+        try {
+            const data = JSON.parse(stdout);
+            console.log('Parsed data:', data);
+            res.status(200).json(data);
+        } catch (err) {
+            console.error(`Failed to parse script output: ${err.message}`);
+            res.status(500).send({ error: 'Failed to parse script output' });
+        }
+    });
+});
+
 // Route to handle the training job submissions
 app.post('/submit-training', upload.fields([{ name: 'trainingFile' }, { name: 'validationFile' }]), async (req, res) => {
     const { body, files } = req;
-    
+
     // Generate training script content dynamically based on request
     const scriptContent = generateTrainingScript(body);
     const scriptBuffer = Buffer.from(scriptContent, 'utf-8');
@@ -67,7 +97,6 @@ app.post('/submit-training', upload.fields([{ name: 'trainingFile' }, { name: 'v
 
         // Submit training job along with files
         const jobId = await addTrainingJob(body, trainingFileData, validationFileData, scriptFileData);
-
         res.status(200).send({ message: 'Training job submitted successfully!', jobId: jobId });
     } catch (error) {
         console.error('Error submitting training job:', error);
@@ -184,6 +213,34 @@ app.post('/register-miner', async (req, res) => {
     }
 });
 
+// New route to run Python script and return its output
+// app.get('/wandb-data', (req, res) => {
+//     exec('python wandb/test.py', (error, stdout, stderr) => {
+//         if (error) {
+//             console.error(`Error executing script: ${error.message}`);
+//             res.status(500).send({ error: 'Failed to execute script' });
+//             return;
+//         }
+//         if (stderr) {
+//             console.error(`Script error: ${stderr}`);
+//             res.status(500).send({ error: 'Script error' });
+//             return;
+//         }
+
+//         // Parse the output from the Python script
+//         let data;
+//         try {
+//             data = JSON.parse(stdout);
+//         } catch (err) {
+//             console.error(`Failed to parse script output: ${err.message}`);
+//             res.status(500).send({ error: 'Failed to parse script output' });
+//             return;
+//         }
+
+//         res.status(200).json(data);
+//     });
+// });
+
 // Route not found (404)
 app.use((req, res, next) => {
     res.status(404).send({ error: 'Not Found' });
@@ -237,7 +294,7 @@ trainer = Trainer(
 )
 
 trainer.train()
-model.save_pretrained('./final_model-${suffix}')7
+model.save_pretrained('./final_model-${suffix}')
 `;
 }
 
@@ -245,39 +302,6 @@ model.save_pretrained('./final_model-${suffix}')7
 const entityName = 'ai-research-lab';
 const projectName = 'gpt_v4';
 const runId = '15v9e834'; // replace with your actual run ID
-
-// Function to fetch data and emit to clients
-const fetchDataAndEmit = () => {
-  const scriptPath = path.join(__dirname, 'wandb', 'fetch_wandb_data.py');
-  const apiKey = process.env.WANDB_API_KEY;
-
-  exec(`python ${scriptPath} ${entityName} ${projectName} ${runId} ${apiKey}`, (error, stdout, stderr) => {
-    if (error) {
-      console.error(`Error executing Python script: ${error}`);
-      return;
-    }
-    if (stderr) {
-      console.error(`Python script stderr: ${stderr}`);
-      return;
-    }
-    try {
-      const data = JSON.parse(stdout);
-      io.sockets.emit('newData', data);
-    } catch (parseError) {
-      console.error(`Error parsing JSON: ${parseError}`);
-    }
-  });
-};
-
-// Call fetchDataAndEmit every second
-setInterval(fetchDataAndEmit, 1000);
-
-io.on('connection', (socket) => {
-  console.log('New client connected');
-  socket.on('disconnect', () => {
-    console.log('Client disconnected');
-  });
-});
 
 server.listen(port, () => {
   console.log(`Server running on port ${port}`);
