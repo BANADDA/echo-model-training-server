@@ -22,7 +22,7 @@ def fetch_wandb_data(entity_name, project_name, run_id):
         'train_learning_rate': history['train/learning_rate'].tolist()
     }
     
-    print(f"Wandb data: {data}")
+    print(f"Fetched Wandb data: {data}")
 
     return data
 
