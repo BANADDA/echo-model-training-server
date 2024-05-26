@@ -13,6 +13,8 @@ def fetch_wandb_data(entity_name, project_name, run_id):
 
     # Fetch the history of the run (logged metrics)
     history = run.history()
+    
+    # print(f"Wandb training history: {history}")
 
     # Extract relevant data
     data = {
@@ -22,7 +24,7 @@ def fetch_wandb_data(entity_name, project_name, run_id):
         'train_learning_rate': history['train/learning_rate'].tolist()
     }
     
-    print(f"Fetched Wandb data: {data}")
+    # print(f"Fetched Wandb data: {data}")
 
     return data
 
