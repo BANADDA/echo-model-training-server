@@ -1,5 +1,5 @@
-# inference.py
 import json
+import sys
 
 import requests
 
@@ -31,15 +31,33 @@ def generate_text(endpoint_url, prompt):
     }
     response = requests.post(endpoint_url, headers=headers, data=json.dumps(payload))
 
-    if response.status_code == 200:
-        return response.json()
-    else:
+    try:
         response.raise_for_status()
+    except requests.exceptions.HTTPError as http_err:
+        print(f"HTTP error occurred: {http_err}")  # Print HTTP error message
+        print(f"Response content: {response.content}")  # Print the response content
+        sys.exit(1)
+    except Exception as err:
+        print(f"Other error occurred: {err}")  # Print any other error message
+        sys.exit(1)
+    
+    try:
+        return response.json()
+    except json.JSONDecodeError:
+        print(f"Failed to parse JSON response: {response.content}")  # Print the response content
+        sys.exit(1)
 
 if __name__ == "__main__":
-    import sys
+    if len(sys.argv) < 3:
+        print("Error: Missing endpoint_url or prompt")
+        sys.exit(1)
+
     endpoint_url = sys.argv[1]
     prompt = sys.argv[2]
 
-    result = generate_text(endpoint_url, prompt)
-    print(result["generated_text"])
+    try:
+        result = generate_text(endpoint_url, prompt)
+        print(json.dumps(result))
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        sys.exit(1)
