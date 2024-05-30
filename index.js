@@ -34,6 +34,56 @@ const checkJwt = expressJwt({
     requestProperty: 'user' // ensures decoded token is attached to req.user
 });
 
+// Endpoint to deploy a model
+app.post('/deploy-model', (req, res) => {
+    const { model_id, model_name } = req.body;
+
+    const process = exec(`python inference/runpod/deploy_pod.py ${model_id} ${model_name}`);
+
+    process.stdout.on('data', (data) => {
+        res.write(data); // Stream the log messages to the client
+    });
+
+    process.stderr.on('data', (data) => {
+        console.error(`Deployment error: ${data}`);
+        res.write(`Deployment error: ${data}`); // Stream the error messages to the client
+    });
+
+    process.on('close', (code) => {
+        if (code !== 0) {
+            res.status(500).end('Deployment process exited with code ' + code);
+        } else {
+            res.end();
+        }
+    });
+});
+
+// Endpoint to perform inference
+app.post('/inference', async (req, res) => {
+    const { endpoint_url, prompt } = req.body;
+
+    exec(`python inference/runpod/inference.py ${endpoint_url} "${prompt}"`, (error, stdout, stderr) => {
+        if (error) {
+            console.error(`Error making inference: ${error.message}`);
+            res.status(500).send({ error: 'Failed to make inference' });
+            return;
+        }
+        if (stderr) {
+            console.error(`Inference error: ${stderr}`);
+            res.status(500).send({ error: 'Inference error' });
+            return;
+        }
+        console.log(`Inference output: ${stdout}`);
+        try {
+            const data = JSON.parse(stdout);
+            res.status(200).json(data);
+        } catch (err) {
+            console.error(`Failed to parse inference output: ${err.message}`);
+            res.status(500).send({ error: 'Failed to parse inference output' });
+        }
+    });
+});
+
 app.get('/wandb-data', (req, res) => {
     console.log('Endpoint /wandb-data reached');
     exec('python wandb/test.py', (error, stdout, stderr) => {
