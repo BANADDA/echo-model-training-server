@@ -34,6 +34,25 @@ const checkJwt = expressJwt({
     requestProperty: 'user' // ensures decoded token is attached to req.user
 });
 
+// Completed Jobs
+app.post('/complete-training', checkJwt, async (req, res) => {
+    const { jobId, huggingFaceRepoId } = req.body;
+    const minerId = req.user.minerId; // Extract minerId from the decoded JWT
+
+    if (!jobId || !huggingFaceRepoId) {
+        return res.status(400).json({ error: 'jobId and huggingFaceRepoId are required.' });
+    }
+
+    try {
+        await saveCompletedJob(jobId, minerId, huggingFaceRepoId);
+        res.status(200).json({ message: 'Completed job saved successfully.' });
+    } catch (error) {
+        console.error('Failed to save completed job:', error);
+        res.status(500).json({ error: 'Failed to save completed job.' });
+    }
+});
+
+
 // Endpoint to deploy a model
 app.post('/deploy-model', (req, res) => {
     const { model_id, model_name } = req.body;

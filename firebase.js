@@ -33,6 +33,37 @@ async function uploadFile(bucketPath, fileBuffer, mimeType) {
   return bucketPath;
 }
 
+// Completed Jobs
+async function saveCompletedJob(jobId, minerId, huggingFaceRepoId) {
+  const completedJobsRef = db.collection('completed_jobs');
+  try {
+      const newJob = {
+          jobId: jobId,
+          minerId: minerId,
+          huggingFaceRepoId: huggingFaceRepoId,
+          completedAt: admin.firestore.FieldValue.serverTimestamp()
+      };
+      await completedJobsRef.add(newJob);
+      console.log(`Completed job saved with jobId: ${jobId}`);
+  } catch (error) {
+      console.error("Error saving completed job:", error);
+      throw error;
+  }
+}
+
+module.exports = {
+  addTrainingJob,
+  updatestatus,
+  logMinerListening,
+  authenticateMiner,
+  start_training,
+  registerMiner,
+  fetchPendingTrainingJobs,
+  fetchPendingJobDetails,
+  fetchJobDetailsById,
+  saveCompletedJob // Export the new function
+};
+
 async function addTrainingJob(jobData, paramsCount, uploadedTrainingFile, uploadedValidationFile, trainingScriptFile) {
   try {
     // First, add a preliminary document to Firestore to generate docRef and get the ID
