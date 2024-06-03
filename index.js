@@ -37,7 +37,7 @@ const checkJwt = expressJwt({
 // Completed Jobs
 app.post('/complete-training', checkJwt, async (req, res) => {
     const { jobId, huggingFaceRepoId } = req.body;
-    const minerId = req.user.minerId; // Extract minerId from the decoded JWT
+    const minerId = req.user.minerId;
 
     if (!jobId || !huggingFaceRepoId) {
         return res.status(400).json({ error: 'jobId and huggingFaceRepoId are required.' });
