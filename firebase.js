@@ -51,19 +51,6 @@ async function saveCompletedJob(jobId, minerId, huggingFaceRepoId) {
   }
 }
 
-module.exports = {
-  addTrainingJob,
-  updatestatus,
-  logMinerListening,
-  authenticateMiner,
-  start_training,
-  registerMiner,
-  fetchPendingTrainingJobs,
-  fetchPendingJobDetails,
-  fetchJobDetailsById,
-  saveCompletedJob // Export the new function
-};
-
 async function addTrainingJob(jobData, paramsCount, uploadedTrainingFile, uploadedValidationFile, trainingScriptFile) {
   try {
     // First, add a preliminary document to Firestore to generate docRef and get the ID
@@ -315,5 +302,5 @@ async function authenticateMiner(username, password) {
 
 
 module.exports = {
-  addTrainingJob, updatestatus, logMinerListening, authenticateMiner, start_training, registerMiner, fetchPendingTrainingJobs, fetchPendingJobDetails, fetchJobDetailsById
+  addTrainingJob, updatestatus, saveCompletedJob, logMinerListening, authenticateMiner, start_training, registerMiner, fetchPendingTrainingJobs, fetchPendingJobDetails, fetchJobDetailsById
 };

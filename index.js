@@ -8,7 +8,7 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const { expressjwt: expressJwt } = require('express-jwt');
-const { addTrainingJob, logMinerListening, fetchJobDetailsById, registerMiner, authenticateMiner, fetchPendingJobDetails, start_training, updatestatus } = require('./firebase');
+const { addTrainingJob, logMinerListening, saveCompletedJob, fetchJobDetailsById, registerMiner, authenticateMiner, fetchPendingJobDetails, start_training, updatestatus } = require('./firebase');
 const { exec } = require('child_process');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -35,9 +35,8 @@ const checkJwt = expressJwt({
 });
 
 // Completed Jobs
-app.post('/complete-training', checkJwt, async (req, res) => {
-    const { jobId, huggingFaceRepoId } = req.body;
-    const minerId = req.user.minerId;
+app.post('/complete-training', async (req, res) => {
+    const { jobId, huggingFaceRepoId, minerId } = req.body;
 
     if (!jobId || !huggingFaceRepoId) {
         return res.status(400).json({ error: 'jobId and huggingFaceRepoId are required.' });
